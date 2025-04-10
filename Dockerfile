@@ -3,7 +3,6 @@ FROM lwthiker/curl-impersonate:0.6-chrome-slim-bullseye as curlStage
 
 FROM node:22
 
-# Install required packages
 RUN apt-get update \
     && apt-get install -y wget gnupg \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
@@ -13,40 +12,39 @@ RUN apt-get update \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the impersonate library from the previous stage
+# Copy the impersonate library from the first stage
 COPY --from=curlStage /usr/local/lib/libcurl-impersonate.so /usr/local/lib/libcurl-impersonate.so
 
-# Create group and user (adjust if needed)
+# Create group and user
 RUN groupadd -r jina && useradd -r -g jina -G audio,video -m jina
 
-# Switch to the new user; if permission issues occur during build, run as root first, then switch before runtime.
+# Switch to the new user; if permission issues occur during build, you'll handle this in the copy command instead
 USER jina
 
 WORKDIR /app
 
-# Copy package files and set correct ownership
-COPY package.json package-lock.json ./
-# Fix permissions - ensure the jina user can write to node_modules:
-RUN chown -R jina:jina /app
+# Copy package files and set ownership during copy using --chown
+COPY --chown=jina:jina package.json package-lock.json ./
+
+# Run npm ci (this should now work since the files already have the correct ownership)
 RUN npm ci
 
-# Copy all source code
-COPY build ./build
-COPY public ./public
-COPY licensed ./licensed
+# Copy the rest of the source code (setting ownership during copy)
+COPY --chown=jina:jina build ./build
+COPY --chown=jina:jina public ./public
+COPY --chown=jina:jina licensed ./licensed
 
-# Prepare chromium config directory
 RUN rm -rf ~/.config/chromium && mkdir -p ~/.config/chromium
 
 RUN NODE_COMPILE_CACHE=node_modules npm run dry-run
 
-# Set environment variables (modify as needed)
+# Set environment variables
 ENV OVERRIDE_CHROME_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 ENV LD_PRELOAD=/usr/local/lib/libcurl-impersonate.so CURL_IMPERSONATE=chrome116 CURL_IMPERSONATE_HEADERS=no
 ENV NODE_COMPILE_CACHE=node_modules
 ENV PORT=8080
 
-# Expose the required ports
+# Expose only port 8080 (if that’s the one your application uses)
 EXPOSE 8080
 
 ENTRYPOINT ["node"]
